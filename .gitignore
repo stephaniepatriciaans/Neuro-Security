@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# IDE / OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Data and generated artifacts
+data/raw/
+data/features/
+models/
+demo_uploads/genuine/
+demo_uploads/impostor/
+
+# Keep thresholds JSONs versioned if desired, but ignore generated plots/reports
+thresholds/*.png
+thresholds/*.csv
+
+# Archives
+*.zip
