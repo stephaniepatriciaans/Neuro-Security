@@ -1,0 +1,22 @@
+{
+  "subject_id": 2,
+  "protocol1": {
+    "run": 1,
+    "eer": 0.0,
+    "eer_threshold": -0.7674299005765126,
+    "far_at_eer_threshold": 0.0,
+    "frr_at_eer_threshold": 0.0,
+    "strict_threshold": -0.8859142965683716,
+    "strict_target_far": 0.01,
+    "auc": 1.0
+  },
+  "protocol2": {
+    "run": 2,
+    "eer": 0.0,
+    "eer_threshold": -1.0557349521265742,
+    "far_at_eer_threshold": 0.0,
+    "frr_at_eer_threshold": 0.0,
+    "auc": 1.0
+  },
+  "demo_threshold": -0.8859142965683716
+}

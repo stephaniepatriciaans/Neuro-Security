@@ -17,9 +17,8 @@ models/
 demo_uploads/genuine/
 demo_uploads/impostor/
 
-# Keep thresholds JSONs versioned if desired, but ignore generated plots/reports
+# Keep thresholds JSONs versioned; ignore generated plots/reports (PNG only)
 thresholds/*.png
-thresholds/*.csv
 
 # Archives
 *.zip

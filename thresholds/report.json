@@ -1,0 +1,17 @@
+{
+  "n_subjects": 2,
+  "protocol1": {
+    "pooled_eer": 0.03703703703703706,
+    "pooled_eer_threshold": 0.1547910210349625,
+    "pooled_auc": 0.9794238683127572,
+    "mean_subject_eer": 0.0,
+    "std_subject_eer": 0.0
+  },
+  "protocol2": {
+    "pooled_eer": 0.19999999999999998,
+    "pooled_eer_threshold": 0.15381483867844908,
+    "pooled_auc": 0.8844444444444444,
+    "mean_subject_eer": 0.0,
+    "std_subject_eer": 0.0
+  }
+}
