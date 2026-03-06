@@ -99,7 +99,9 @@ def process_subject_run(
     run_id: int,
     data_root: Path,
     out_dir: Path,
-    block_sec: float,
+    train_sec: float,
+    val_sec: float,
+    test_sec: float,
     win_sec: float,
     step_sec: float,
     artifact_uv: float,
@@ -117,31 +119,39 @@ def process_subject_run(
     data = raw.get_data()  # shape: (n_channels, n_samples), in volts
     sfreq = float(raw.info["sfreq"])
 
-    block_len = int(round(block_sec * sfreq))
-    if data.shape[1] < 2 * block_len:
+    train_len = int(round(train_sec * sfreq))
+    val_len = int(round(val_sec * sfreq))
+    test_len = int(round(test_sec * sfreq))
+    required_len = train_len + val_len + test_len
+    if data.shape[1] < required_len:
         raise RuntimeError(
             f"S{subject_id:03d} R{run_id:02d} too short: {data.shape[1]} samples at {sfreq} Hz"
         )
 
-    enroll_block = data[:, :block_len]
-    test_block = data[:, block_len : 2 * block_len]
+    train_block = data[:, :train_len]
+    val_block = data[:, train_len : train_len + val_len]
+    test_block = data[:, train_len + val_len : required_len]
 
-    enroll_feats = extract_block_features(enroll_block, sfreq, win_sec, step_sec, artifact_uv)
+    train_feats = extract_block_features(train_block, sfreq, win_sec, step_sec, artifact_uv)
+    val_feats = extract_block_features(val_block, sfreq, win_sec, step_sec, artifact_uv)
     test_feats = extract_block_features(test_block, sfreq, win_sec, step_sec, artifact_uv)
 
-    enroll_df = make_dataframe(enroll_feats, subject_id, run_id, "enroll")
+    train_df = make_dataframe(train_feats, subject_id, run_id, "train")
+    val_df = make_dataframe(val_feats, subject_id, run_id, "val")
     test_df = make_dataframe(test_feats, subject_id, run_id, "test")
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    enroll_path = out_dir / f"S{subject_id:03d}_R{run_id:02d}_enroll.csv"
+    train_path = out_dir / f"S{subject_id:03d}_R{run_id:02d}_train.csv"
+    val_path = out_dir / f"S{subject_id:03d}_R{run_id:02d}_val.csv"
     test_path = out_dir / f"S{subject_id:03d}_R{run_id:02d}_test.csv"
 
-    enroll_df.to_csv(enroll_path, index=False)
+    train_df.to_csv(train_path, index=False)
+    val_df.to_csv(val_path, index=False)
     test_df.to_csv(test_path, index=False)
 
     print(
         f"S{subject_id:03d} R{run_id:02d} -> "
-        f"enroll_windows={len(enroll_df)}, test_windows={len(test_df)}"
+        f"train_windows={len(train_df)}, val_windows={len(val_df)}, test_windows={len(test_df)}"
     )
 
 
@@ -158,13 +168,15 @@ def main() -> None:
     parser.add_argument("--runs", type=str, default="1,2", help="Runs to process, default '1,2'.")
     parser.add_argument("--data-root", type=str, default="data/raw", help="Root folder containing EDF files.")
     parser.add_argument("--out-dir", type=str, default="data/features", help="Where feature CSVs are saved.")
-    parser.add_argument("--block-sec", type=float, default=30.0, help="Seconds for enrollment and test blocks.")
+    parser.add_argument("--train-sec", type=float, default=20.0, help="Seconds in the training split.")
+    parser.add_argument("--val-sec", type=float, default=10.0, help="Seconds in the validation split.")
+    parser.add_argument("--test-sec", type=float, default=30.0, help="Seconds in the test split.")
     parser.add_argument("--win-sec", type=float, default=2.0, help="Window length in seconds.")
     parser.add_argument("--step-sec", type=float, default=2.0, help="Window step in seconds.")
     parser.add_argument(
         "--artifact-uv",
         type=float,
-        default=300.0,
+        default=0.0,
         help="Drop windows whose absolute amplitude exceeds this threshold in microvolts. Set <=0 to disable.",
     )
     args = parser.parse_args()
@@ -173,6 +185,9 @@ def main() -> None:
     runs = list(iter_runs(args.runs))
     data_root = Path(args.data_root)
     out_dir = Path(args.out_dir)
+
+    if args.train_sec <= 0 or args.val_sec <= 0 or args.test_sec <= 0:
+        raise ValueError("train-sec, val-sec, and test-sec must all be positive")
 
     print(
         "Starting feature extraction with "
@@ -186,7 +201,9 @@ def main() -> None:
                 run_id=run_id,
                 data_root=data_root,
                 out_dir=out_dir,
-                block_sec=args.block_sec,
+                train_sec=args.train_sec,
+                val_sec=args.val_sec,
+                test_sec=args.test_sec,
                 win_sec=args.win_sec,
                 step_sec=args.step_sec,
                 artifact_uv=args.artifact_uv,

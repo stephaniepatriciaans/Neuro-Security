@@ -1,0 +1,24 @@
+{
+  "subject_id": 18,
+  "decision": {
+    "run": 1,
+    "split": "val",
+    "threshold": 1.249511314009312,
+    "validation_eer": 0.002564102564102564,
+    "validation_auc": 0.995897435897436
+  },
+  "protocol1": {
+    "run": 1,
+    "split": "test",
+    "auc": 0.9718518518518519,
+    "far": 0.017094017094017096,
+    "frr": 0.6
+  },
+  "protocol2": {
+    "run": 2,
+    "split": "test",
+    "auc": 0.9603418803418804,
+    "far": 0.013675213675213675,
+    "frr": 1.0
+  }
+}

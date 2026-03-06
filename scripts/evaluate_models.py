@@ -31,6 +31,28 @@ def load_feature_matrix(path: Path) -> np.ndarray:
     return df[cols].to_numpy(dtype=np.float64)
 
 
+def score_non_empty(model, features: np.ndarray, subject_id: int, run_id: int) -> np.ndarray:
+    if len(features) == 0:
+        raise ValueError(
+            f"Subject {subject_id:03d} run {run_id:02d} has no test windows after preprocessing. "
+            "Re-run extraction with artifact rejection disabled or a looser threshold."
+        )
+    return model.decision_function(features)
+
+
+def far_frr_at_threshold(y_true: np.ndarray, scores: np.ndarray, threshold: float) -> tuple[float, float]:
+    decisions = (scores >= threshold).astype(int)
+    positive_mask = y_true == 1
+    negative_mask = y_true == 0
+
+    if np.sum(negative_mask) == 0 or np.sum(positive_mask) == 0:
+        raise ValueError("Both positive and negative samples are required to compute FAR/FRR")
+
+    far = float(np.mean(decisions[negative_mask] == 1))
+    frr = float(np.mean(decisions[positive_mask] == 0))
+    return far, frr
+
+
 def eer_from_scores(y_true: np.ndarray, scores: np.ndarray) -> tuple[float, float, float, float]:
     fpr, tpr, thresholds = roc_curve(y_true, scores)
     fnr = 1.0 - tpr
@@ -39,22 +61,17 @@ def eer_from_scores(y_true: np.ndarray, scores: np.ndarray) -> tuple[float, floa
     return eer, float(thresholds[idx]), float(fpr[idx]), float(fnr[idx])
 
 
-def strict_threshold_far(scores_neg: np.ndarray, target_far: float = 0.01) -> float:
-    # Using only impostor scores, pick the score quantile so accept-rate among impostors is target_far.
-    # Accept if score >= threshold, so threshold is high quantile of impostor scores.
-    q = 1.0 - target_far
-    return float(np.quantile(scores_neg, q))
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate per-user authentication models and compute thresholds.")
     parser.add_argument("--subjects", type=str, default="1-40", help="Subject IDs, e.g. '1-40' or '1,2,3'.")
     parser.add_argument("--features-dir", type=str, default="data/features", help="Directory of feature CSVs.")
     parser.add_argument("--models-dir", type=str, default="models", help="Directory of trained user models.")
     parser.add_argument("--thresholds-dir", type=str, default="thresholds", help="Output directory for thresholds JSONs.")
+    parser.add_argument("--validation-run", type=int, default=1, help="Run ID used for threshold selection.")
     parser.add_argument("--protocol1-run", type=int, default=1, help="Run ID for within-condition test.")
     parser.add_argument("--protocol2-run", type=int, default=2, help="Run ID for cross-condition test.")
-    parser.add_argument("--target-far", type=float, default=0.01, help="Strict threshold target FAR.")
+    parser.add_argument("--validation-split", type=str, default="val", help="Feature split used for threshold selection.")
+    parser.add_argument("--test-split", type=str, default="test", help="Feature split used for final evaluation.")
     args = parser.parse_args()
 
     subjects = parse_subjects(args.subjects)
@@ -65,29 +82,34 @@ def main() -> None:
 
     summary_rows: list[dict[str, float]] = []
 
-    pooled_scores_p1: list[float] = []
-    pooled_labels_p1: list[int] = []
-    pooled_scores_p2: list[float] = []
-    pooled_labels_p2: list[int] = []
-
     for s in subjects:
         model_path = models_dir / f"user_{s:03d}.pkl"
         if not model_path.exists():
             raise FileNotFoundError(f"Missing model: {model_path}")
         model = joblib.load(model_path)
 
-        def score_subject_test(run_id: int, subject_id: int) -> np.ndarray:
-            x = load_feature_matrix(features_dir / f"S{subject_id:03d}_R{run_id:02d}_test.csv")
-            return model.decision_function(x)
+        def score_subject_split(run_id: int, subject_id: int, split: str) -> np.ndarray:
+            x = load_feature_matrix(features_dir / f"S{subject_id:03d}_R{run_id:02d}_{split}.csv")
+            return score_non_empty(model, x, subject_id, run_id)
 
-        p1_genuine = score_subject_test(args.protocol1_run, s)
-        p1_impostor = np.concatenate(
-            [score_subject_test(args.protocol1_run, j) for j in subjects if j != s], axis=0
+        val_genuine = score_subject_split(args.validation_run, s, args.validation_split)
+        val_impostor = np.concatenate(
+            [score_subject_split(args.validation_run, j, args.validation_split) for j in subjects if j != s], axis=0
         )
 
-        p2_genuine = score_subject_test(args.protocol2_run, s)
+        y_val = np.hstack([np.ones(len(val_genuine)), np.zeros(len(val_impostor))])
+        sc_val = np.hstack([val_genuine, val_impostor])
+        val_eer, val_thr, _, _ = eer_from_scores(y_val, sc_val)
+        val_auc = float(roc_auc_score(y_val, sc_val))
+
+        p1_genuine = score_subject_split(args.protocol1_run, s, args.test_split)
+        p1_impostor = np.concatenate(
+            [score_subject_split(args.protocol1_run, j, args.test_split) for j in subjects if j != s], axis=0
+        )
+
+        p2_genuine = score_subject_split(args.protocol2_run, s, args.test_split)
         p2_impostor = np.concatenate(
-            [score_subject_test(args.protocol2_run, j) for j in subjects if j != s], axis=0
+            [score_subject_split(args.protocol2_run, j, args.test_split) for j in subjects if j != s], axis=0
         )
 
         y1 = np.hstack([np.ones(len(p1_genuine)), np.zeros(len(p1_impostor))])
@@ -95,32 +117,34 @@ def main() -> None:
         y2 = np.hstack([np.ones(len(p2_genuine)), np.zeros(len(p2_impostor))])
         sc2 = np.hstack([p2_genuine, p2_impostor])
 
-        p1_eer, p1_thr, p1_far_at_eer, p1_frr_at_eer = eer_from_scores(y1, sc1)
-        p2_eer, p2_thr, p2_far_at_eer, p2_frr_at_eer = eer_from_scores(y2, sc2)
-
-        p1_strict = strict_threshold_far(p1_impostor, target_far=args.target_far)
+        p1_far_at_val_thr, p1_frr_at_val_thr = far_frr_at_threshold(y1, sc1, val_thr)
+        p2_far_at_val_thr, p2_frr_at_val_thr = far_frr_at_threshold(y2, sc2, val_thr)
+        p1_auc = float(roc_auc_score(y1, sc1))
+        p2_auc = float(roc_auc_score(y2, sc2))
 
         payload = {
             "subject_id": s,
+            "decision": {
+                "run": int(args.validation_run),
+                "split": args.validation_split,
+                "threshold": val_thr,
+                "validation_eer": val_eer,
+                "validation_auc": val_auc,
+            },
             "protocol1": {
                 "run": int(args.protocol1_run),
-                "eer": p1_eer,
-                "eer_threshold": p1_thr,
-                "far_at_eer_threshold": p1_far_at_eer,
-                "frr_at_eer_threshold": p1_frr_at_eer,
-                "strict_threshold": p1_strict,
-                "strict_target_far": float(args.target_far),
-                "auc": float(roc_auc_score(y1, sc1)),
+                "split": args.test_split,
+                "auc": p1_auc,
+                "far": p1_far_at_val_thr,
+                "frr": p1_frr_at_val_thr,
             },
             "protocol2": {
                 "run": int(args.protocol2_run),
-                "eer": p2_eer,
-                "eer_threshold": p2_thr,
-                "far_at_eer_threshold": p2_far_at_eer,
-                "frr_at_eer_threshold": p2_frr_at_eer,
-                "auc": float(roc_auc_score(y2, sc2)),
+                "split": args.test_split,
+                "auc": p2_auc,
+                "far": p2_far_at_val_thr,
+                "frr": p2_frr_at_val_thr,
             },
-            "demo_threshold": p1_strict,
         }
 
         out_path = thresholds_dir / f"user_{s:03d}.json"
@@ -130,50 +154,46 @@ def main() -> None:
         summary_rows.append(
             {
                 "subject_id": s,
-                "p1_eer": p1_eer,
-                "p1_auc": float(roc_auc_score(y1, sc1)),
-                "p2_eer": p2_eer,
-                "p2_auc": float(roc_auc_score(y2, sc2)),
-                "p1_demo_threshold": p1_strict,
+                "decision_threshold": val_thr,
+                "val_eer": val_eer,
+                "val_auc": val_auc,
+                "p1_auc": p1_auc,
+                "p1_far": p1_far_at_val_thr,
+                "p1_frr": p1_frr_at_val_thr,
+                "p2_auc": p2_auc,
+                "p2_far": p2_far_at_val_thr,
+                "p2_frr": p2_frr_at_val_thr,
             }
         )
 
-        pooled_scores_p1.extend(sc1.tolist())
-        pooled_labels_p1.extend(y1.astype(int).tolist())
-        pooled_scores_p2.extend(sc2.tolist())
-        pooled_labels_p2.extend(y2.astype(int).tolist())
-
         print(
-            f"user_{s:03d}: P1 EER={p1_eer:.4f}, AUC={roc_auc_score(y1, sc1):.4f} | "
-            f"P2 EER={p2_eer:.4f}, AUC={roc_auc_score(y2, sc2):.4f}"
+            f"user_{s:03d}: threshold={val_thr:.4f}, val_auc={val_auc:.4f} | "
+            f"P1 FAR={p1_far_at_val_thr:.4f}, FRR={p1_frr_at_val_thr:.4f}, AUC={p1_auc:.4f} | "
+            f"P2 FAR={p2_far_at_val_thr:.4f}, FRR={p2_frr_at_val_thr:.4f}, AUC={p2_auc:.4f}"
         )
 
     summary_df = pd.DataFrame(summary_rows)
     summary_df.to_csv(thresholds_dir / "summary.csv", index=False)
 
-    pooled_y1 = np.asarray(pooled_labels_p1, dtype=int)
-    pooled_s1 = np.asarray(pooled_scores_p1, dtype=np.float64)
-    pooled_y2 = np.asarray(pooled_labels_p2, dtype=int)
-    pooled_s2 = np.asarray(pooled_scores_p2, dtype=np.float64)
-
-    p1_eer, p1_thr, _, _ = eer_from_scores(pooled_y1, pooled_s1)
-    p2_eer, p2_thr, _, _ = eer_from_scores(pooled_y2, pooled_s2)
-
     report = {
         "n_subjects": len(subjects),
+        "threshold_selection": {
+            "run": int(args.validation_run),
+            "split": args.validation_split,
+        },
+        "validation": {
+            "mean_eer": float(summary_df["val_eer"].mean()),
+            "mean_auc": float(summary_df["val_auc"].mean()),
+        },
         "protocol1": {
-            "pooled_eer": p1_eer,
-            "pooled_eer_threshold": p1_thr,
-            "pooled_auc": float(roc_auc_score(pooled_y1, pooled_s1)),
-            "mean_subject_eer": float(summary_df["p1_eer"].mean()),
-            "std_subject_eer": float(summary_df["p1_eer"].std(ddof=0)),
+            "mean_auc": float(summary_df["p1_auc"].mean()),
+            "mean_far": float(summary_df["p1_far"].mean()),
+            "mean_frr": float(summary_df["p1_frr"].mean()),
         },
         "protocol2": {
-            "pooled_eer": p2_eer,
-            "pooled_eer_threshold": p2_thr,
-            "pooled_auc": float(roc_auc_score(pooled_y2, pooled_s2)),
-            "mean_subject_eer": float(summary_df["p2_eer"].mean()),
-            "std_subject_eer": float(summary_df["p2_eer"].std(ddof=0)),
+            "mean_auc": float(summary_df["p2_auc"].mean()),
+            "mean_far": float(summary_df["p2_far"].mean()),
+            "mean_frr": float(summary_df["p2_frr"].mean()),
         },
     }
 

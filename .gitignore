@@ -14,8 +14,6 @@ Thumbs.db
 data/raw/
 data/features/
 models/
-demo_uploads/genuine/
-demo_uploads/impostor/
 
 # Keep thresholds JSONs versioned; ignore generated plots/reports (PNG only)
 thresholds/*.png

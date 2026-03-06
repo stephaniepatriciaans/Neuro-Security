@@ -1,17 +1,21 @@
 {
-  "n_subjects": 2,
+  "n_subjects": 40,
+  "threshold_selection": {
+    "run": 1,
+    "split": "val"
+  },
+  "validation": {
+    "mean_eer": 0.0026282051282051277,
+    "mean_auc": 0.9974358974358974
+  },
   "protocol1": {
-    "pooled_eer": 0.03703703703703706,
-    "pooled_eer_threshold": 0.1547910210349625,
-    "pooled_auc": 0.9794238683127572,
-    "mean_subject_eer": 0.0,
-    "std_subject_eer": 0.0
+    "mean_auc": 0.9905840455840454,
+    "mean_far": 0.0102991452991453,
+    "mean_frr": 0.23999999999999994
   },
   "protocol2": {
-    "pooled_eer": 0.19999999999999998,
-    "pooled_eer_threshold": 0.15381483867844908,
-    "pooled_auc": 0.8844444444444444,
-    "mean_subject_eer": 0.0,
-    "std_subject_eer": 0.0
+    "mean_auc": 0.915042735042735,
+    "mean_far": 0.05004273504273504,
+    "mean_frr": 0.5783333333333334
   }
 }
