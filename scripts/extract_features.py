@@ -6,8 +6,8 @@ from typing import Iterable
 
 import numpy as np
 import pandas as pd
-from mne.datasets import eegbci
-from mne.io import read_raw_edf
+from moabb import set_download_dir
+from moabb.datasets import Lee2019_MI
 from scipy.signal import welch
 
 
@@ -18,6 +18,11 @@ BANDS: list[tuple[str, float, float]] = [
     ("beta", 13.0, 30.0),
     ("low_gamma", 30.0, 40.0),
 ]
+
+SESSION1_TRAIN_RUNS = ("0preTrainRest", "2postTrainRest")
+SESSION1_VAL_RUNS = ("3preTestRest",)
+SESSION1_TEST_RUNS = ("5postTestRest",)
+SESSION2_TEST_RUNS = ("0preTrainRest", "2postTrainRest", "3preTestRest", "5postTestRest")
 
 
 def parse_subjects(value: str) -> list[int]:
@@ -42,22 +47,56 @@ def to_windows(data: np.ndarray, win_len: int, step: int) -> list[np.ndarray]:
 
 
 def bandpower_features(window: np.ndarray, sfreq: float) -> np.ndarray:
-    # window shape: (n_channels, n_samples)
     features: list[float] = []
+    nperseg = min(window.shape[1], int(round(sfreq)))
     for ch in range(window.shape[0]):
-        freqs, psd = welch(window[ch], fs=sfreq, nperseg=int(sfreq), noverlap=0)
+        freqs, psd = welch(window[ch], fs=sfreq, nperseg=nperseg, noverlap=0)
         for _, fmin, fmax in BANDS:
             mask = (freqs >= fmin) & (freqs < fmax)
             if not np.any(mask):
                 features.append(0.0)
             else:
-                # NumPy 2.x removed trapz; use trapezoid and fallback for older versions.
                 if hasattr(np, "trapezoid"):
                     area = np.trapezoid(psd[mask], freqs[mask])
                 else:
                     area = np.trapz(psd[mask], freqs[mask])
                 features.append(float(area))
     return np.asarray(features, dtype=np.float64)
+
+
+def preprocess_raw(raw, l_freq: float, h_freq: float, resample_hz: float):
+    raw = raw.copy().pick("eeg")
+    raw.filter(l_freq, h_freq, method="iir", verbose=False)
+    raw.set_eeg_reference("average", projection=False, verbose=False)
+    if resample_hz > 0:
+        raw.resample(resample_hz, verbose=False)
+    return raw
+
+
+def concatenate_runs(
+    session_runs: dict,
+    run_names: Iterable[str],
+    *,
+    l_freq: float,
+    h_freq: float,
+    resample_hz: float,
+) -> tuple[np.ndarray, float]:
+    arrays: list[np.ndarray] = []
+    sfreq: float | None = None
+    for run_name in run_names:
+        if run_name not in session_runs:
+            raise KeyError(f"Missing resting-state run '{run_name}' in session data")
+        raw = preprocess_raw(session_runs[run_name], l_freq=l_freq, h_freq=h_freq, resample_hz=resample_hz)
+        data = raw.get_data()
+        current_sfreq = float(raw.info["sfreq"])
+        if sfreq is None:
+            sfreq = current_sfreq
+        elif abs(sfreq - current_sfreq) > 1e-9:
+            raise ValueError("Sampling frequency changed across runs after preprocessing")
+        arrays.append(data)
+    if not arrays or sfreq is None:
+        raise ValueError("No resting-state arrays were collected for concatenation")
+    return np.concatenate(arrays, axis=1), sfreq
 
 
 def extract_block_features(
@@ -83,94 +122,32 @@ def extract_block_features(
     return np.vstack(feats)
 
 
-def make_dataframe(features: np.ndarray, subject_id: int, run_id: int, split: str) -> pd.DataFrame:
+def make_dataframe(features: np.ndarray, subject_id: int, session_id: int, split: str) -> pd.DataFrame:
     n_features = features.shape[1] if features.ndim == 2 else 0
     columns = [f"f{i:03d}" for i in range(n_features)]
     df = pd.DataFrame(features, columns=columns)
     df.insert(0, "window_idx", np.arange(len(df), dtype=int))
     df.insert(0, "split", split)
-    df.insert(0, "run", run_id)
+    df.insert(0, "session_id", session_id)
     df.insert(0, "subject_id", subject_id)
     return df
 
 
-def process_subject_run(
-    subject_id: int,
-    run_id: int,
-    data_root: Path,
-    out_dir: Path,
-    train_sec: float,
-    val_sec: float,
-    test_sec: float,
-    win_sec: float,
-    step_sec: float,
-    artifact_uv: float,
-) -> None:
-    edf_paths = eegbci.load_data(subject_id, [run_id], path=str(data_root), update_path=False)
-    if not edf_paths:
-        raise RuntimeError(f"No EDF found for S{subject_id:03d} R{run_id:02d}")
-
-    raw = read_raw_edf(edf_paths[0], preload=True, verbose=False)
-    eegbci.standardize(raw)
-    raw.pick("eeg")
-    raw.filter(1.0, 40.0, method="iir", verbose=False)
-    raw.set_eeg_reference("average", projection=False, verbose=False)
-
-    data = raw.get_data()  # shape: (n_channels, n_samples), in volts
-    sfreq = float(raw.info["sfreq"])
-
-    train_len = int(round(train_sec * sfreq))
-    val_len = int(round(val_sec * sfreq))
-    test_len = int(round(test_sec * sfreq))
-    required_len = train_len + val_len + test_len
-    if data.shape[1] < required_len:
-        raise RuntimeError(
-            f"S{subject_id:03d} R{run_id:02d} too short: {data.shape[1]} samples at {sfreq} Hz"
-        )
-
-    train_block = data[:, :train_len]
-    val_block = data[:, train_len : train_len + val_len]
-    test_block = data[:, train_len + val_len : required_len]
-
-    train_feats = extract_block_features(train_block, sfreq, win_sec, step_sec, artifact_uv)
-    val_feats = extract_block_features(val_block, sfreq, win_sec, step_sec, artifact_uv)
-    test_feats = extract_block_features(test_block, sfreq, win_sec, step_sec, artifact_uv)
-
-    train_df = make_dataframe(train_feats, subject_id, run_id, "train")
-    val_df = make_dataframe(val_feats, subject_id, run_id, "val")
-    test_df = make_dataframe(test_feats, subject_id, run_id, "test")
-
+def save_features(out_dir: Path, subject_id: int, session_id: int, split: str, features: np.ndarray) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    train_path = out_dir / f"S{subject_id:03d}_R{run_id:02d}_train.csv"
-    val_path = out_dir / f"S{subject_id:03d}_R{run_id:02d}_val.csv"
-    test_path = out_dir / f"S{subject_id:03d}_R{run_id:02d}_test.csv"
-
-    train_df.to_csv(train_path, index=False)
-    val_df.to_csv(val_path, index=False)
-    test_df.to_csv(test_path, index=False)
-
-    print(
-        f"S{subject_id:03d} R{run_id:02d} -> "
-        f"train_windows={len(train_df)}, val_windows={len(val_df)}, test_windows={len(test_df)}"
-    )
-
-
-def iter_runs(runs_arg: str) -> Iterable[int]:
-    for item in runs_arg.split(","):
-        item = item.strip()
-        if item:
-            yield int(item)
+    df = make_dataframe(features, subject_id, session_id, split)
+    out_path = out_dir / f"S{subject_id:03d}_S{session_id}_{split}.csv"
+    df.to_csv(out_path, index=False)
+    print(f"S{subject_id:03d} S{session_id} {split}: windows={len(df)} -> {out_path}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Extract 320D PSD-bandpower features from EEGMMIDB baseline runs.")
+    parser = argparse.ArgumentParser(
+        description="Extract resting-state PSD bandpower features from MOABB Lee2019_MI."
+    )
     parser.add_argument("--subjects", type=str, default="1-40", help="Subject IDs, e.g. '1-40' or '1,2,3'.")
-    parser.add_argument("--runs", type=str, default="1,2", help="Runs to process, default '1,2'.")
-    parser.add_argument("--data-root", type=str, default="data/raw", help="Root folder containing EDF files.")
+    parser.add_argument("--data-root", type=str, default="data/raw", help="MOABB download/cache root.")
     parser.add_argument("--out-dir", type=str, default="data/features", help="Where feature CSVs are saved.")
-    parser.add_argument("--train-sec", type=float, default=20.0, help="Seconds in the training split.")
-    parser.add_argument("--val-sec", type=float, default=10.0, help="Seconds in the validation split.")
-    parser.add_argument("--test-sec", type=float, default=30.0, help="Seconds in the test split.")
     parser.add_argument("--win-sec", type=float, default=2.0, help="Window length in seconds.")
     parser.add_argument("--step-sec", type=float, default=2.0, help="Window step in seconds.")
     parser.add_argument(
@@ -179,35 +156,79 @@ def main() -> None:
         default=0.0,
         help="Drop windows whose absolute amplitude exceeds this threshold in microvolts. Set <=0 to disable.",
     )
+    parser.add_argument("--l-freq", type=float, default=1.0, help="High-pass cutoff in Hz.")
+    parser.add_argument("--h-freq", type=float, default=40.0, help="Low-pass cutoff in Hz.")
+    parser.add_argument(
+        "--resample-hz",
+        type=float,
+        default=0.0,
+        help="Optional resampling rate after filtering. Set <=0 to keep the native 1000 Hz.",
+    )
     args = parser.parse_args()
 
     subjects = parse_subjects(args.subjects)
-    runs = list(iter_runs(args.runs))
     data_root = Path(args.data_root)
     out_dir = Path(args.out_dir)
 
-    if args.train_sec <= 0 or args.val_sec <= 0 or args.test_sec <= 0:
-        raise ValueError("train-sec, val-sec, and test-sec must all be positive")
+    set_download_dir(str(data_root))
+    dataset = Lee2019_MI(
+        train_run=True,
+        test_run=False,
+        resting_state=True,
+        sessions=[1, 2],
+    )
 
     print(
-        "Starting feature extraction with "
-        f"subjects={subjects[0]}..{subjects[-1]} (n={len(subjects)}), runs={runs}, out={out_dir}"
+        "Starting Lee2019_MI resting-state feature extraction with "
+        f"subjects={subjects[0]}..{subjects[-1]} (n={len(subjects)}), out={out_dir}"
     )
 
     for subject_id in subjects:
-        for run_id in runs:
-            process_subject_run(
-                subject_id=subject_id,
-                run_id=run_id,
-                data_root=data_root,
-                out_dir=out_dir,
-                train_sec=args.train_sec,
-                val_sec=args.val_sec,
-                test_sec=args.test_sec,
-                win_sec=args.win_sec,
-                step_sec=args.step_sec,
-                artifact_uv=args.artifact_uv,
-            )
+        subject_data = dataset.get_data(subjects=[subject_id])[subject_id]
+        session1_runs = subject_data["0"]
+        session2_runs = subject_data["1"]
+        
+        s1_train_block, sfreq = concatenate_runs(
+            session1_runs,
+            SESSION1_TRAIN_RUNS,
+            l_freq=args.l_freq,
+            h_freq=args.h_freq,
+            resample_hz=args.resample_hz,
+        )
+        s1_val_block, sfreq_val = concatenate_runs(
+            session1_runs,
+            SESSION1_VAL_RUNS,
+            l_freq=args.l_freq,
+            h_freq=args.h_freq,
+            resample_hz=args.resample_hz,
+        )
+        s1_test_block, sfreq_test = concatenate_runs(
+            session1_runs,
+            SESSION1_TEST_RUNS,
+            l_freq=args.l_freq,
+            h_freq=args.h_freq,
+            resample_hz=args.resample_hz,
+        )
+        s2_test_block, sfreq_s2 = concatenate_runs(
+            session2_runs,
+            SESSION2_TEST_RUNS,
+            l_freq=args.l_freq,
+            h_freq=args.h_freq,
+            resample_hz=args.resample_hz,
+        )
+
+        if len({round(sfreq, 6), round(sfreq_val, 6), round(sfreq_test, 6), round(sfreq_s2, 6)}) != 1:
+            raise ValueError(f"Inconsistent sampling rates for subject {subject_id:03d}")
+
+        s1_train_feats = extract_block_features(s1_train_block, sfreq, args.win_sec, args.step_sec, args.artifact_uv)
+        s1_val_feats = extract_block_features(s1_val_block, sfreq, args.win_sec, args.step_sec, args.artifact_uv)
+        s1_test_feats = extract_block_features(s1_test_block, sfreq, args.win_sec, args.step_sec, args.artifact_uv)
+        s2_test_feats = extract_block_features(s2_test_block, sfreq, args.win_sec, args.step_sec, args.artifact_uv)
+
+        save_features(out_dir, subject_id, 1, "train", s1_train_feats)
+        save_features(out_dir, subject_id, 1, "val", s1_val_feats)
+        save_features(out_dir, subject_id, 1, "test", s1_test_feats)
+        save_features(out_dir, subject_id, 2, "test", s2_test_feats)
 
     print("Feature extraction complete.")
 
