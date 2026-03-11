@@ -2,7 +2,7 @@
 
 EEG-based biometric authentication using the **MOABB `Lee2019_MI` dataset** and its resting-state baseline recordings.
 
-For the pipeline, we uses `Lee2019_MI(train_run=True, test_run=False, resting_state=True)` so it can access the resting recordings from the two Lee2019 motor-imagery sessions. The goal is subject-specific authentication using baseline EEG, not motor-imagery classification.
+The pipeline uses `Lee2019_MI(train_run=True, test_run=False, resting_state=True)` so it can access the resting recordings from the two Lee2019 motor-imagery sessions. The goal is subject-specific authentication using baseline EEG, not motor-imagery classification.
 
 ## Dataset
 
@@ -70,13 +70,19 @@ Extracted features are saved like:
 - `S001_S1_test.csv`
 - `S001_S2_test.csv`
 
+By default, the Lee2019 pipeline writes to dataset-specific folders so it does not overwrite older EEGMMIDB artifacts:
+- `data/raw_lee2019_mi`
+- `data/features_lee2019_mi`
+- `models_lee2019_mi`
+- `thresholds_lee2019_mi`
+
 ## Setup
 
 Create and activate a virtual environment:
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1\
+.\.venv\Scripts\Activate.ps1
 ```
 
 Install dependencies:
@@ -99,3 +105,21 @@ That command automatically runs:
 - `python scripts/extract_features.py`
 - `python scripts/train_models.py`
 - `python scripts/evaluate_models.py` 
+
+## Notes
+
+- The current script defaults still use subjects `1-40` unless you pass `--subjects` explicitly.
+- Older folders such as `data/features`, `models`, and `thresholds` may still contain EEGMMIDB-era outputs and are separate from the Lee2019 defaults above.
+
+## Recommended scope
+
+- Do not commit raw data, extracted features, trained models, threshold JSONs, CSV summaries, or plots. They are generated artifacts and should stay local.
+- With about **10 GB** free, a practical project scope is **3 to 5 subjects** at a time if you want to keep the raw Lee2019 files locally.
+- A larger local cohort will likely exceed available space because each subject has two large session `.mat` files.
+- If you want to test more than 5 subjects on the same machine, the safer approach is to process a small cohort at a time and delete the raw cache between runs.
+
+## Key limitations
+
+- The project now uses only the **resting-state portions** of `Lee2019_MI`, not the motor-imagery task labels.
+- Results on a very small cohort can look artificially strong and should be presented as a feasibility study, not a definitive biometric benchmark.
+- Storage is the main practical constraint for this repo right now, not model training time.

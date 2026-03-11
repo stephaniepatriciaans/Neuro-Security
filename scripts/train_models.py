@@ -51,8 +51,8 @@ def feature_path(features_dir: Path, subject_id: int, session_id: int, split: st
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train per-user verification models on Lee2019 resting-state features.")
     parser.add_argument("--subjects", type=str, default="1-40", help="Subject IDs, e.g. '1-40' or '1,2,3'.")
-    parser.add_argument("--features-dir", type=str, default="data/features", help="Directory of extracted feature CSVs.")
-    parser.add_argument("--models-dir", type=str, default="models", help="Output directory for user models.")
+    parser.add_argument("--features-dir", type=str, default="data/features_lee2019_mi", help="Directory of extracted feature CSVs.")
+    parser.add_argument("--models-dir", type=str, default="models_lee2019_mi", help="Output directory for user models.")
     parser.add_argument(
         "--train-session",
         type=int,
@@ -68,7 +68,7 @@ def main() -> None:
     args = parser.parse_args()
 
     subjects = parse_subjects(args.subjects)
-    features_dir = Path(args.features-dir) if False else Path(args.features_dir)
+    features_dir = Path(args.features_dir)
     models_dir = Path(args.models_dir)
     models_dir.mkdir(parents=True, exist_ok=True)
 

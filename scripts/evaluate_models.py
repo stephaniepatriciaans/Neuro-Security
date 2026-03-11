@@ -117,9 +117,9 @@ def save_far_frr_plot(y_true: np.ndarray, scores: np.ndarray, out_path: Path, ti
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate per-user authentication models on Lee2019 resting-state sessions.")
     parser.add_argument("--subjects", type=str, default="1-40", help="Subject IDs, e.g. '1-40' or '1,2,3'.")
-    parser.add_argument("--features-dir", type=str, default="data/features", help="Directory of feature CSVs.")
-    parser.add_argument("--models-dir", type=str, default="models", help="Directory of trained user models.")
-    parser.add_argument("--thresholds-dir", type=str, default="thresholds", help="Output directory for thresholds JSONs.")
+    parser.add_argument("--features-dir", type=str, default="data/features_lee2019_mi", help="Directory of feature CSVs.")
+    parser.add_argument("--models-dir", type=str, default="models_lee2019_mi", help="Directory of trained user models.")
+    parser.add_argument("--thresholds-dir", type=str, default="thresholds_lee2019_mi", help="Output directory for thresholds JSONs.")
     parser.add_argument("--validation-session", type=int, default=1, help="Session ID used for threshold selection.")
     parser.add_argument("--protocol1-session", type=int, default=1, help="Session ID for within-session testing.")
     parser.add_argument("--protocol2-session", type=int, default=2, help="Session ID for cross-session testing.")

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import warnings
 from pathlib import Path
 from typing import Iterable
 
 import numpy as np
 import pandas as pd
+from mne import set_config
 from moabb import set_download_dir
 from moabb.datasets import Lee2019_MI
 from scipy.signal import welch
@@ -23,6 +25,19 @@ SESSION1_TRAIN_RUNS = ("0preTrainRest", "2postTrainRest")
 SESSION1_VAL_RUNS = ("3preTestRest",)
 SESSION1_TEST_RUNS = ("5postTestRest",)
 SESSION2_TEST_RUNS = ("0preTrainRest", "2postTrainRest", "3preTestRest", "5postTestRest")
+
+
+def configure_download_dir(data_root: Path) -> None:
+    resolved = str(data_root.resolve())
+    set_download_dir(resolved)
+    set_config("MNE_DATA", resolved)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message='Setting non-standard config type: "MNE_DATASETS_LEE2019-MI_PATH"',
+            category=RuntimeWarning,
+        )
+        set_config("MNE_DATASETS_LEE2019-MI_PATH", resolved)
 
 
 def parse_subjects(value: str) -> list[int]:
@@ -146,8 +161,8 @@ def main() -> None:
         description="Extract resting-state PSD bandpower features from MOABB Lee2019_MI."
     )
     parser.add_argument("--subjects", type=str, default="1-40", help="Subject IDs, e.g. '1-40' or '1,2,3'.")
-    parser.add_argument("--data-root", type=str, default="data/raw", help="MOABB download/cache root.")
-    parser.add_argument("--out-dir", type=str, default="data/features", help="Where feature CSVs are saved.")
+    parser.add_argument("--data-root", type=str, default="data/raw_lee2019_mi", help="MOABB download/cache root.")
+    parser.add_argument("--out-dir", type=str, default="data/features_lee2019_mi", help="Where feature CSVs are saved.")
     parser.add_argument("--win-sec", type=float, default=2.0, help="Window length in seconds.")
     parser.add_argument("--step-sec", type=float, default=2.0, help="Window step in seconds.")
     parser.add_argument(
@@ -170,7 +185,7 @@ def main() -> None:
     data_root = Path(args.data_root)
     out_dir = Path(args.out_dir)
 
-    set_download_dir(str(data_root))
+    configure_download_dir(data_root)
     dataset = Lee2019_MI(
         train_run=True,
         test_run=False,

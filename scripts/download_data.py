@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import warnings
 from pathlib import Path
 
+from mne import set_config
 from moabb import set_download_dir
 from moabb.datasets import Lee2019_MI
 
@@ -16,6 +18,29 @@ def parse_subjects(value: str) -> list[int]:
             raise ValueError("subjects range start must be <= end")
         return list(range(start, end + 1))
     return [int(x.strip()) for x in value.split(",") if x.strip()]
+
+
+def parse_sessions(value: str) -> list[int]:
+    sessions = [int(x.strip()) for x in value.split(",") if x.strip()]
+    if not sessions:
+        raise ValueError("at least one session must be provided")
+    invalid = [session for session in sessions if session not in (1, 2)]
+    if invalid:
+        raise ValueError(f"invalid Lee2019 session(s): {invalid}; valid sessions are 1 and 2")
+    return sessions
+
+
+def configure_download_dir(data_root: Path) -> None:
+    resolved = str(data_root.resolve())
+    set_download_dir(resolved)
+    set_config("MNE_DATA", resolved)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message='Setting non-standard config type: "MNE_DATASETS_LEE2019-MI_PATH"',
+            category=RuntimeWarning,
+        )
+        set_config("MNE_DATASETS_LEE2019-MI_PATH", resolved)
 
 
 def main() -> None:
@@ -37,17 +62,17 @@ def main() -> None:
     parser.add_argument(
         "--data-root",
         type=str,
-        default="data/raw",
+        default="data/raw_lee2019_mi",
         help="Root folder where MOABB will cache downloaded files.",
     )
     args = parser.parse_args()
 
     subjects = parse_subjects(args.subjects)
-    sessions = [int(x.strip()) for x in args.sessions.split(",") if x.strip()]
+    sessions = parse_sessions(args.sessions)
     data_root = Path(args.data_root)
     data_root.mkdir(parents=True, exist_ok=True)
 
-    set_download_dir(str(data_root))
+    configure_download_dir(data_root)
     dataset = Lee2019_MI(
         train_run=True,
         test_run=False,
@@ -60,13 +85,13 @@ def main() -> None:
         f"across sessions {sessions} into {data_root}"
     )
 
+    total_files = 0
     for subject in subjects:
-        subject_data = dataset.get_data(subjects=[subject])
-        session_names = sorted(subject_data[subject].keys())
-        total_runs = sum(len(subject_data[subject][sess]) for sess in session_names)
-        print(f"S{subject:03d}: cached {len(session_names)} session(s), {total_runs} run object(s)")
+        paths = dataset.data_path(subject, path=str(data_root), force_update=False, update_path=False)
+        total_files += len(paths)
+        print(f"S{subject:03d}: cached {len(paths)} session file(s)")
 
-    print("Download/cache complete.")
+    print(f"Download/cache complete. Total files processed: {total_files}")
 
 
 if __name__ == "__main__":

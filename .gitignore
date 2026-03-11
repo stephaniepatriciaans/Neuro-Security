@@ -12,11 +12,19 @@ Thumbs.db
 
 # Data and generated artifacts
 data/raw/
+data/raw_lee2019_mi/
 data/features/
+data/features_lee2019_mi/
+data/features_lee2019_mi_check/
 models/
-
-# Keep thresholds JSONs versioned; ignore generated plots/reports (PNG only)
-thresholds/*.png
+models_lee2019_mi/
+thresholds/
+thresholds_lee2019_mi/
+scripts/data/
+scripts/thresholds/
+old/
+*.mat
+*.pkl
 
 # Archives
 *.zip
