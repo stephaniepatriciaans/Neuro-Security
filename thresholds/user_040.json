@@ -1,0 +1,26 @@
+{
+  "subject_id": 40,
+  "decision": {
+    "session": 1,
+    "split": "val",
+    "threshold": 1.4663307781738872,
+    "validation_eer": 0.003418803418803419,
+    "validation_auc": 0.9980626780626781
+  },
+  "protocol1": {
+    "name": "within_session",
+    "session": 1,
+    "split": "test",
+    "auc": 0.9935042735042735,
+    "far": 0.002564102564102564,
+    "frr": 0.7
+  },
+  "protocol2": {
+    "name": "cross_session",
+    "session": 2,
+    "split": "test",
+    "auc": 0.908457977207977,
+    "far": 0.01282051282051282,
+    "frr": 0.9916666666666667
+  }
+}

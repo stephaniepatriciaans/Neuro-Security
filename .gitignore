@@ -4,27 +4,15 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+Local/
 
 # IDE / OS
 .vscode/
 .DS_Store
 Thumbs.db
 
-# Data and generated artifacts
 data/raw/
-data/raw_lee2019_mi/
-data/features/
-data/features_lee2019_mi/
-data/features_lee2019_mi_check/
-models/
-models_lee2019_mi/
-thresholds/
-thresholds_lee2019_mi/
-scripts/data/
-scripts/thresholds/
-old/
 *.mat
-*.pkl
 
 # Archives
 *.zip

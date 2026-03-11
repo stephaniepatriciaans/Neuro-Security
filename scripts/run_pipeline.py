@@ -13,10 +13,10 @@ def run_step(args: list[str]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the full Lee2019 resting-state authentication pipeline.")
     parser.add_argument("--subjects", type=str, default="1-40", help="Subject IDs, e.g. '1-40' or '1,2,3'.")
-    parser.add_argument("--data-root", type=str, default="data/raw_lee2019_mi", help="MOABB download/cache root.")
-    parser.add_argument("--features-dir", type=str, default="data/features_lee2019_mi", help="Output directory for feature CSVs.")
-    parser.add_argument("--models-dir", type=str, default="models_lee2019_mi", help="Output directory for trained models.")
-    parser.add_argument("--thresholds-dir", type=str, default="thresholds_lee2019_mi", help="Output directory for evaluation results.")
+    parser.add_argument("--data-root", type=str, default="data/raw", help="MOABB download/cache root.")
+    parser.add_argument("--features-dir", type=str, default="data/features", help="Output directory for feature CSVs.")
+    parser.add_argument("--models-dir", type=str, default="models", help="Output directory for trained models.")
+    parser.add_argument("--thresholds-dir", type=str, default="thresholds", help="Output directory for evaluation results.")
     args = parser.parse_args()
 
     python_exe = sys.executable

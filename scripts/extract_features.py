@@ -161,8 +161,8 @@ def main() -> None:
         description="Extract resting-state PSD bandpower features from MOABB Lee2019_MI."
     )
     parser.add_argument("--subjects", type=str, default="1-40", help="Subject IDs, e.g. '1-40' or '1,2,3'.")
-    parser.add_argument("--data-root", type=str, default="data/raw_lee2019_mi", help="MOABB download/cache root.")
-    parser.add_argument("--out-dir", type=str, default="data/features_lee2019_mi", help="Where feature CSVs are saved.")
+    parser.add_argument("--data-root", type=str, default="data/raw", help="MOABB download/cache root.")
+    parser.add_argument("--out-dir", type=str, default="data/features", help="Where feature CSVs are saved.")
     parser.add_argument("--win-sec", type=float, default=2.0, help="Window length in seconds.")
     parser.add_argument("--step-sec", type=float, default=2.0, help="Window step in seconds.")
     parser.add_argument(

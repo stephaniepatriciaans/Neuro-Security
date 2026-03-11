@@ -62,7 +62,7 @@ def main() -> None:
     parser.add_argument(
         "--data-root",
         type=str,
-        default="data/raw_lee2019_mi",
+        default="data/raw",
         help="Root folder where MOABB will cache downloaded files.",
     )
     args = parser.parse_args()

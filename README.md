@@ -70,11 +70,15 @@ Extracted features are saved like:
 - `S001_S1_test.csv`
 - `S001_S2_test.csv`
 
-By default, the Lee2019 pipeline writes to dataset-specific folders so it does not overwrite older EEGMMIDB artifacts:
-- `data/raw_lee2019_mi`
-- `data/features_lee2019_mi`
-- `models_lee2019_mi`
-- `thresholds_lee2019_mi`
+## Repo layout
+
+The cleaned repo now uses simple default folders:
+- `data/raw`
+- `data/features`
+- `models`
+- `thresholds`
+
+The current `models` and `thresholds` folders correspond to the final **1-40 subject** verification run.
 
 ## Setup
 
@@ -106,14 +110,24 @@ That command automatically runs:
 - `python scripts/train_models.py`
 - `python scripts/evaluate_models.py` 
 
-## Notes
+## Current benchmark
 
-- The current script defaults still use subjects `1-40` unless you pass `--subjects` explicitly.
-- Older folders such as `data/features`, `models`, and `thresholds` may still contain EEGMMIDB-era outputs and are separate from the Lee2019 defaults above.
+The final combined benchmark over **40 subjects** is stored in `thresholds/report.json`.
+
+- validation mean EER: **1.49%**
+- validation mean AUC: **0.9889**
+- protocol 1 mean AUC: **0.9834**
+- protocol 1 cohort EER: **3.16%**
+- protocol 2 mean AUC: **0.9180**
+- protocol 2 cohort EER: **12.70%**
+
+This is the main result to report: strong within-session verification, with a clear but realistic degradation under cross-session evaluation.
 
 ## Recommended scope
 
-- Do not commit raw data, extracted features, trained models, threshold JSONs, CSV summaries, or plots. They are generated artifacts and should stay local.
+- Do not commit raw data in `data/raw`. It is large and only needed if you want to regenerate features.
+- `data/features` and `thresholds` are the useful lightweight artifacts for reproducibility and reporting.
+- `models` is optional to keep locally, but it is not required for the written deliverables if `data/features` and `thresholds` are already saved.
 - With about **10 GB** free, a practical project scope is **3 to 5 subjects** at a time if you want to keep the raw Lee2019 files locally.
 - A larger local cohort will likely exceed available space because each subject has two large session `.mat` files.
 - If you want to test more than 5 subjects on the same machine, the safer approach is to process a small cohort at a time and delete the raw cache between runs.
@@ -122,4 +136,5 @@ That command automatically runs:
 
 - The project now uses only the **resting-state portions** of `Lee2019_MI`, not the motor-imagery task labels.
 - Results on a very small cohort can look artificially strong and should be presented as a feasibility study, not a definitive biometric benchmark.
+- Cross-session FRR remains high, which is an honest sign that threshold transfer across days is much harder than within-session verification.
 - Storage is the main practical constraint for this repo right now, not model training time.

@@ -1,0 +1,35 @@
+{
+  "n_subjects": 40,
+  "threshold_selection": {
+    "session": 1,
+    "split": "val"
+  },
+  "validation": {
+    "mean_eer": 0.014935897435897433,
+    "mean_auc": 0.9888881766381766
+  },
+  "protocol1": {
+    "name": "within_session",
+    "mean_auc": 0.9834009971509972,
+    "mean_far": 0.01846153846153846,
+    "mean_frr": 0.12166666666666667,
+    "cohort_auc": 0.9827645121082621,
+    "cohort_eer": 0.03160256410256408
+  },
+  "protocol2": {
+    "name": "cross_session",
+    "mean_auc": 0.9180101050569801,
+    "mean_far": 0.038504273504273503,
+    "mean_frr": 0.5252083333333333,
+    "cohort_auc": 0.9156285389957263,
+    "cohort_eer": 0.12696314102564105
+  },
+  "plots": {
+    "protocol1_score_hist": "thresholds\\plots\\protocol1_score_hist.png",
+    "protocol2_score_hist": "thresholds\\plots\\protocol2_score_hist.png",
+    "protocol1_roc": "thresholds\\plots\\protocol1_roc.png",
+    "protocol2_roc": "thresholds\\plots\\protocol2_roc.png",
+    "protocol1_far_frr": "thresholds\\plots\\protocol1_far_frr.png",
+    "protocol2_far_frr": "thresholds\\plots\\protocol2_far_frr.png"
+  }
+}
