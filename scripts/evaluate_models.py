@@ -66,18 +66,83 @@ def eer_from_scores(y_true: np.ndarray, scores: np.ndarray) -> tuple[float, floa
     return eer, float(thresholds[idx]), float(fpr[idx]), float(fnr[idx])
 
 
-def save_score_histogram(genuine: np.ndarray, impostor: np.ndarray, threshold: float, out_path: Path, title: str) -> None:
-    plt.figure(figsize=(8, 5))
-    plt.hist(genuine, bins=30, alpha=0.7, density=True, label="Genuine")
-    plt.hist(impostor, bins=30, alpha=0.7, density=True, label="Impostor")
-    plt.axvline(threshold, linestyle="--", label=f"Mean threshold = {threshold:.3f}")
-    plt.xlabel("Decision score")
-    plt.ylabel("Density")
-    plt.title(title)
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=200)
-    plt.close()
+def _standardize_subject_scores(genuine: np.ndarray, impostor: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    stacked = np.concatenate([genuine, impostor])
+    mean = float(np.mean(stacked))
+    std = float(np.std(stacked))
+    if std < 1e-12:
+        std = 1.0
+    return (genuine - mean) / std, (impostor - mean) / std
+
+
+def save_standardized_score_plot(
+    p1_genuine_by_subject: list[np.ndarray],
+    p1_impostor_by_subject: list[np.ndarray],
+    p2_genuine_by_subject: list[np.ndarray],
+    p2_impostor_by_subject: list[np.ndarray],
+    out_path: Path,
+) -> None:
+    p1_genuine_z: list[np.ndarray] = []
+    p1_impostor_z: list[np.ndarray] = []
+    p2_genuine_z: list[np.ndarray] = []
+    p2_impostor_z: list[np.ndarray] = []
+
+    for genuine, impostor in zip(p1_genuine_by_subject, p1_impostor_by_subject, strict=True):
+        g_z, i_z = _standardize_subject_scores(genuine, impostor)
+        p1_genuine_z.append(g_z)
+        p1_impostor_z.append(i_z)
+
+    for genuine, impostor in zip(p2_genuine_by_subject, p2_impostor_by_subject, strict=True):
+        g_z, i_z = _standardize_subject_scores(genuine, impostor)
+        p2_genuine_z.append(g_z)
+        p2_impostor_z.append(i_z)
+
+    p1_genuine_pool = np.concatenate(p1_genuine_z)
+    p1_impostor_pool = np.concatenate(p1_impostor_z)
+    p2_genuine_pool = np.concatenate(p2_genuine_z)
+    p2_impostor_pool = np.concatenate(p2_impostor_z)
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.5), sharey=True)
+    panels = [
+        (axes[0], p1_genuine_pool, p1_impostor_pool, "Protocol 1 standardized scores"),
+        (axes[1], p2_genuine_pool, p2_impostor_pool, "Protocol 2 standardized scores"),
+    ]
+
+    for ax, genuine_values, impostor_values, title in panels:
+        violin = ax.violinplot(
+            [genuine_values, impostor_values],
+            positions=[1, 2],
+            widths=0.8,
+            showmeans=True,
+            showextrema=False,
+        )
+        colors = ["#2a9d8f", "#e76f51"]
+        for idx, body in enumerate(violin["bodies"]):
+            body.set_facecolor(colors[idx])
+            body.set_alpha(0.45)
+            body.set_edgecolor("black")
+
+        ax.boxplot(
+            [genuine_values, impostor_values],
+            positions=[1, 2],
+            widths=0.25,
+            patch_artist=True,
+            boxprops={"facecolor": "white", "edgecolor": "black"},
+            medianprops={"color": "black"},
+            whiskerprops={"color": "black"},
+            capprops={"color": "black"},
+            showfliers=False,
+        )
+        ax.axhline(0.0, linestyle="--", linewidth=1.0, color="gray")
+        ax.set_xticks([1, 2])
+        ax.set_xticklabels(["Genuine", "Impostor"])
+        ax.set_title(title)
+        ax.set_ylabel("Per-subject standardized score (z)")
+
+    fig.suptitle("Score distributions after per-subject standardization")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=220)
+    plt.close(fig)
 
 
 def save_roc_plot(y_true: np.ndarray, scores: np.ndarray, out_path: Path, title: str) -> float:
@@ -100,18 +165,85 @@ def save_far_frr_plot(y_true: np.ndarray, scores: np.ndarray, out_path: Path, ti
     fpr, tpr, thresholds = roc_curve(y_true, scores)
     fnr = 1.0 - tpr
     idx = int(np.nanargmin(np.abs(fpr - fnr)))
-    plt.figure(figsize=(7, 5))
-    plt.plot(thresholds, fpr, label="FAR")
-    plt.plot(thresholds, fnr, label="FRR")
-    plt.axvline(thresholds[idx], linestyle="--", label=f"Approx EER thr = {thresholds[idx]:.3f}")
+
+    finite = np.isfinite(thresholds)
+    thresholds_f = thresholds[finite]
+    fpr_f = fpr[finite]
+    fnr_f = fnr[finite]
+
+    order = np.argsort(thresholds_f)
+    thresholds_f = thresholds_f[order]
+    fpr_f = fpr_f[order]
+    fnr_f = fnr_f[order]
+
+    eer_threshold = float(thresholds[idx])
+    span = float(np.std(thresholds_f)) * 1.5
+    if span <= 0:
+        span = float(np.max(thresholds_f) - np.min(thresholds_f)) * 0.2
+    if span <= 0:
+        span = 1.0
+
+    zoom_mask = (thresholds_f >= eer_threshold - span) & (thresholds_f <= eer_threshold + span)
+    if np.sum(zoom_mask) < 10:
+        zoom_mask = np.ones_like(thresholds_f, dtype=bool)
+
+    plt.figure(figsize=(7.2, 5.0))
+    plt.plot(thresholds_f[zoom_mask], fpr_f[zoom_mask], label="FAR", linewidth=2)
+    plt.plot(thresholds_f[zoom_mask], fnr_f[zoom_mask], label="FRR", linewidth=2)
+    plt.axvline(eer_threshold, linestyle="--", label=f"Approx EER thr = {eer_threshold:.3f}")
+    plt.scatter(
+        [eer_threshold],
+        [float((fpr[idx] + fnr[idx]) / 2.0)],
+        marker="o",
+        s=40,
+        color="black",
+        label=f"Approx EER = {((fpr[idx] + fnr[idx]) / 2.0):.3f}",
+        zorder=5,
+    )
     plt.xlabel("Threshold")
     plt.ylabel("Error rate")
-    plt.title(title)
+    plt.title(f"{title} (zoomed around crossing)")
     plt.legend()
+    plt.grid(alpha=0.25)
     plt.tight_layout()
     plt.savefig(out_path, dpi=200)
     plt.close()
     return {"eer": float((fpr[idx] + fnr[idx]) / 2.0), "threshold": float(thresholds[idx])}
+
+
+def save_protocol_error_bar_plot(summary_df: pd.DataFrame, p1_cohort_eer: float, p2_cohort_eer: float, out_path: Path) -> None:
+    categories = ["Mean FAR", "Mean FRR", "Cohort EER"]
+    p1_values = [
+        float(summary_df["p1_far"].mean()) * 100.0,
+        float(summary_df["p1_frr"].mean()) * 100.0,
+        float(p1_cohort_eer) * 100.0,
+    ]
+    p2_values = [
+        float(summary_df["p2_far"].mean()) * 100.0,
+        float(summary_df["p2_frr"].mean()) * 100.0,
+        float(p2_cohort_eer) * 100.0,
+    ]
+
+    x = np.arange(len(categories))
+    width = 0.35
+
+    plt.figure(figsize=(8, 4.8))
+    bars1 = plt.bar(x - width / 2, p1_values, width, label="Protocol 1", color="#2a9d8f")
+    bars2 = plt.bar(x + width / 2, p2_values, width, label="Protocol 2", color="#e76f51")
+    plt.xticks(x, categories)
+    plt.ylabel("Rate (%)")
+    plt.title("Protocol comparison: error metrics")
+    plt.legend()
+    plt.grid(axis="y", alpha=0.25)
+
+    for bars in (bars1, bars2):
+        for bar in bars:
+            h = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width() / 2, h + 0.7, f"{h:.2f}%", ha="center", va="bottom", fontsize=9)
+
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=220)
+    plt.close()
 
 
 def main() -> None:
@@ -243,8 +375,6 @@ def main() -> None:
     summary_df = pd.DataFrame(summary_rows)
     summary_df.to_csv(thresholds_dir / "summary.csv", index=False)
 
-    mean_threshold = float(np.mean(thresholds))
-
     p1_gen = np.concatenate(cohort_p1_genuine)
     p1_imp = np.concatenate(cohort_p1_impostor)
     p2_gen = np.concatenate(cohort_p2_genuine)
@@ -255,24 +385,18 @@ def main() -> None:
     p2_y = np.hstack([np.ones(len(p2_gen)), np.zeros(len(p2_imp))])
     p2_scores = np.hstack([p2_gen, p2_imp])
 
-    save_score_histogram(
-        p1_gen,
-        p1_imp,
-        mean_threshold,
-        plots_dir / "protocol1_score_hist.png",
-        "Protocol 1 score distributions (within session)",
-    )
-    save_score_histogram(
-        p2_gen,
-        p2_imp,
-        mean_threshold,
-        plots_dir / "protocol2_score_hist.png",
-        "Protocol 2 score distributions (cross session)",
-    )
     p1_auc_cohort = save_roc_plot(p1_y, p1_scores, plots_dir / "protocol1_roc.png", "Protocol 1 ROC")
     p2_auc_cohort = save_roc_plot(p2_y, p2_scores, plots_dir / "protocol2_roc.png", "Protocol 2 ROC")
     p1_det = save_far_frr_plot(p1_y, p1_scores, plots_dir / "protocol1_far_frr.png", "Protocol 1 FAR / FRR vs threshold")
     p2_det = save_far_frr_plot(p2_y, p2_scores, plots_dir / "protocol2_far_frr.png", "Protocol 2 FAR / FRR vs threshold")
+    save_protocol_error_bar_plot(summary_df, p1_det["eer"], p2_det["eer"], plots_dir / "protocol_error_bar.png")
+    save_standardized_score_plot(
+        cohort_p1_genuine,
+        cohort_p1_impostor,
+        cohort_p2_genuine,
+        cohort_p2_impostor,
+        plots_dir / "standardized_score_violin.png",
+    )
 
     report = {
         "n_subjects": len(subjects),
@@ -301,12 +425,12 @@ def main() -> None:
             "cohort_eer": p2_det["eer"],
         },
         "plots": {
-            "protocol1_score_hist": str(plots_dir / "protocol1_score_hist.png"),
-            "protocol2_score_hist": str(plots_dir / "protocol2_score_hist.png"),
             "protocol1_roc": str(plots_dir / "protocol1_roc.png"),
             "protocol2_roc": str(plots_dir / "protocol2_roc.png"),
             "protocol1_far_frr": str(plots_dir / "protocol1_far_frr.png"),
             "protocol2_far_frr": str(plots_dir / "protocol2_far_frr.png"),
+            "protocol_error_bar": str(plots_dir / "protocol_error_bar.png"),
+            "standardized_score_violin": str(plots_dir / "standardized_score_violin.png"),
         },
     }
 

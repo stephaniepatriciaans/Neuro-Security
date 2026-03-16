@@ -25,11 +25,11 @@
     "cohort_eer": 0.12696314102564105
   },
   "plots": {
-    "protocol1_score_hist": "thresholds\\plots\\protocol1_score_hist.png",
-    "protocol2_score_hist": "thresholds\\plots\\protocol2_score_hist.png",
     "protocol1_roc": "thresholds\\plots\\protocol1_roc.png",
     "protocol2_roc": "thresholds\\plots\\protocol2_roc.png",
     "protocol1_far_frr": "thresholds\\plots\\protocol1_far_frr.png",
-    "protocol2_far_frr": "thresholds\\plots\\protocol2_far_frr.png"
+    "protocol2_far_frr": "thresholds\\plots\\protocol2_far_frr.png",
+    "protocol_error_bar": "thresholds\\plots\\protocol_error_bar.png",
+    "standardized_score_violin": "thresholds\\plots\\standardized_score_violin.png"
   }
 }
